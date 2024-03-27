@@ -19,6 +19,12 @@ const pool = mysql.createPool({
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+const cors = require('cors');
+
+// Use it before all route definitions
+app.use(cors({
+  origin: 'http://localhost:3001' // or you can use '*', to allow all origins
+}));
 
 wss.on('connection', (ws) => {
     pool.query('SELECT * FROM pixels', (error, results) => {

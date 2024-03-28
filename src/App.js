@@ -8,6 +8,8 @@ import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { ConnectionProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'; // Corrected import
 import '@solana/wallet-adapter-react-ui/styles.css';
+import { Drawer } from './components/ui/drawer';
+
 
 const App = () => {
   const [userPublicKey, setUserPublicKey] = useState(null);
@@ -20,6 +22,7 @@ const App = () => {
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider> {/* Now correctly imported */}
           <div>
+            <Drawer></Drawer>
             <WalletConnectButton setUserPublicKey={setUserPublicKey} />
             {userPublicKey && <BurnTokensToGetPixels />}
             <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />

@@ -1,5 +1,6 @@
 // Canvas.js
 import React, { useEffect, useRef, useState } from 'react';
+import { Alert, AlertDescription, AlertTitle } from "./components/ui/alert"
 
 const Canvas = ({ color, userPublicKey }) => {
   const canvasRef = useRef(null);
@@ -59,7 +60,12 @@ const Canvas = ({ color, userPublicKey }) => {
 
   const handleClick = (e) => {
     if (!userPublicKey) {
-      alert('Please connect your Solana wallet first.');
+<Alert>
+  <AlertTitle>Heads up!</AlertTitle>
+  <AlertDescription>
+    You can add components and dependencies to your app using the cli.
+  </AlertDescription>
+</Alert>
       return;
     }
 

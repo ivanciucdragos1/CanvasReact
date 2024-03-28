@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "allowJs": true,
+        "esModuleInterop": true,
+      "jsx": "react",  // Use "react-jsx" if you are using React 17 or newer
+      "baseUrl": ".",
+      "paths": {
+        "@/lib/*": ["lib/*"]
+      }
+      // Include other compiler options as needed
+    }
+    // Include other TSConfig settings as needed
+  }
+  

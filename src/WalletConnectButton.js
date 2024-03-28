@@ -1,6 +1,7 @@
 import React from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { Button } from "./components/ui/button"
 
 const WalletConnectButton = ({ setUserPublicKey }) => {
   const { publicKey, connect, connecting, wallet } = useWallet();
@@ -24,9 +25,9 @@ const WalletConnectButton = ({ setUserPublicKey }) => {
     }
   };
 
-  return <button onClick={connectWallet} disabled={connecting}>
+  return <Button onClick={connectWallet} disabled={connecting}>
     {connecting ? 'Connecting...' : 'Connect Wallet'}
-  </button>;
+  </Button>;
 };
 
 export default WalletConnectButton;

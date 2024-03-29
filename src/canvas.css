@@ -1,0 +1,13 @@
+/* Canvas.css */
+.pixel {
+    transition: transform 0.2s ease-in-out;
+  }
+  
+  .pixel:hover {
+    transform: translateZ(10px);
+  }
+  
+  .pixel:active {
+    transform: translateZ(-5px);
+  }
+  

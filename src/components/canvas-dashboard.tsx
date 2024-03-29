@@ -1,32 +1,31 @@
-import Link from "next/link";
 import { Button } from "../components/ui/button";
 import { Label } from "../components/ui/label";
 import { Input } from "../components/ui/input";
-import React from "react";
+import React, { useState } from 'react';
+import Canvas from "src/Canvas";
+import WalletConnectButton from "src/WalletConnectButton";
+import { WalletProvider, useWallet } from '@solana/wallet-adapter-react';
+import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { ConnectionProvider } from '@solana/wallet-adapter-react';
+import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'; // Corrected import
+import '@solana/wallet-adapter-react-ui/styles.css';
+import BurnTokensToGetPixels from "src/BurnTokensToGetPixels";
 
 export function CanvasDashboard() {
+  const [userPublicKey, setUserPublicKey] = useState(null);
+  const [color, setColor] = useState('#000000');
+  const network = WalletAdapterNetwork.Mainnet;
+  const wallets = [new PhantomWalletAdapter()];
+
   return (
+    <ConnectionProvider endpoint={`https://alien-dimensional-cloud.solana-mainnet.quiknode.pro/4b7aa52b9eb7f231f7b0ddaa6e6d25cc21c9d636/`}>
+    <WalletProvider wallets={wallets} autoConnect>
+      <WalletModalProvider> {/* Now correctly imported */}
+
     <div className="flex flex-col w-full min-h-screen">
       <header className="flex items-center h-16 px-4 border-b shrink-0 md:px-6">
-        <Link
-          className="flex items-center gap-2 text-lg font-semibold sm:text-base mr-4"
-          href="#"
-          passHref
-        >
-          <FrameIcon className="w-6 h-6" />
-          <span className="sr-only">Acme Inc</span>
-        </Link>
-        <nav className="hidden font-medium sm:flex flex-row items-center gap-5 text-sm lg:gap-6">
-          <Link className="font-bold" href="#" passHref>
-            BETA
-          </Link>
-          <Link className="text-gray-500 dark:text-gray-400" href="#" passHref>
-            Whitepaper
-          </Link>
-          <Link className="text-gray-500 dark:text-gray-400" href="#" passHref>
-            Documentation
-          </Link>
-        </nav>
+        
         <div className="flex items-center w-full gap-4 md:ml-auto md:gap-2 lg:gap-4">
           <Button className="rounded-full ml-auto" size="icon" variant="ghost">
             <BellIcon className="w-4 h-4" />
@@ -56,7 +55,10 @@ export function CanvasDashboard() {
               <div className="text-gray-500 dark:text-gray-400">
                 Not connected
               </div>
-              <Button size="sm">Connect Wallet</Button>
+              <WalletConnectButton setUserPublicKey={setUserPublicKey} />
+              {userPublicKey}
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+
             </div>
           </div>
           <div className="grid gap-4 md:grid-cols-1">
@@ -90,10 +92,13 @@ export function CanvasDashboard() {
           </div>
         </section>
         <section className="flex-1 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 p-4">
-          Canvas
+          <Canvas color={color} userPublicKey={userPublicKey}></Canvas>
         </section>
       </main>
     </div>
+    </WalletModalProvider>
+      </WalletProvider>
+    </ConnectionProvider>
   );
 }
 

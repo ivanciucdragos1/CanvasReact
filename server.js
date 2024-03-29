@@ -6,7 +6,6 @@ const bodyParser = require('body-parser');
 const app = express();
 const PORT = 3000;
 
-// Middleware to parse JSON bodies
 app.use(bodyParser.json());
 
 const pool = mysql.createPool({
@@ -21,12 +20,10 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const cors = require('cors');
 
-// Use it before all route definitions
-app.use(cors({
-  origin: 'http://localhost:3001' // or you can use '*', to allow all origins
-}));
+app.use(cors({ origin: 'http://localhost:3001' }));
 
 wss.on('connection', (ws) => {
+    // Send current pixels to the newly connected client
     pool.query('SELECT * FROM pixels', (error, results) => {
         if (error) {
             console.error('Error fetching pixels:', error);
@@ -44,79 +41,101 @@ wss.on('connection', (ws) => {
         });
     });
 
+    // Handle messages from clients
     ws.on('message', (message) => {
         const data = JSON.parse(message);
 
-        if (data.action === 'addPixels' && data.userId) {
-            // Assuming data.pixelsToAdd contains the number of pixels to add
-            pool.query('UPDATE user_pixels SET available_pixels = available_pixels + ? WHERE user_id = ?', [data.pixelsToAdd, data.userId], (error) => {
-                if (error) {
-                    console.error('Error adding available pixels:', error);
-                    return;
-                }
-                console.log(`Added ${data.pixelsToAdd} pixels to user ${data.userId}`);
-                sendPixelCountUpdate(ws, data.userId);
-            });
-        }
-        else if (data.x !== undefined && data.y !== undefined && data.userId) {
-            pool.query('SELECT available_pixels FROM user_pixels WHERE user_id = ?', [data.userId], (error, results) => {
-                if (error || results.length === 0) {
-                    console.error('Error checking available pixels:', error);
-                    return;
-                }
+        if (data.action === 'placePixel' && data.userId && data.x !== undefined && data.y !== undefined) {
+            // Deduct an available pixel before placing a new pixel
+            pool.query(
+                'UPDATE user_pixels SET available_pixels = GREATEST(0, available_pixels - 1) WHERE user_id = ?',
+                [data.userId],
+                (error) => {
+                    if (error) {
+                        console.error('Error updating available pixels:', error);
+                        return;
+                    }
 
-                if (results[0].available_pixels > 0) {
-                    const query = `INSERT INTO pixels (x_coordinate, y_coordinate, color, user_id) 
-                                   VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE color = VALUES(color), 
-                                   user_id = VALUES(user_id), timestamp = CURRENT_TIMESTAMP`;
-                    pool.query(query, [data.x, data.y, data.color, data.userId], (error) => {
-                        if (error) {
-                            console.error('Error updating pixel:', error);
-                            return;
-                        }
-                        pool.query('UPDATE user_pixels SET available_pixels = available_pixels - 1, placed_pixels = placed_pixels + 1 WHERE user_id = ?', [data.userId], (error) => {
+                    console.log(`Deducted 1 pixel from user ${data.userId}`);
+                    sendPixelCountUpdate(data.userId);
+
+                    // Insert new pixel or update existing pixel
+                    pool.query(
+                        'INSERT INTO pixels (x_coordinate, y_coordinate, color, user_id, timestamp) VALUES (?, ?, ?, ?, NOW()) ' +
+                        'ON DUPLICATE KEY UPDATE color = VALUES(color), user_id = VALUES(user_id), timestamp = NOW()',
+                        [data.x, data.y, data.color, data.userId],
+                        (error) => {
                             if (error) {
-                                console.error('Error updating pixel counts for user:', error);
-                                return;
+                                console.error('Error inserting or updating pixel data:', error);
+                            } else {
+                                console.log(`Pixel placed or updated at (${data.x}, ${data.y}) by user ${data.userId}`);
+                                // Broadcast the pixel placement to all connected clients
+                                wss.clients.forEach(client => {
+                                    if (client.readyState === WebSocket.OPEN) {
+                                        client.send(JSON.stringify({
+                                            x: data.x,
+                                            y: data.y,
+                                            color: data.color,
+                                            userId: data.userId,
+                                            timestamp: new Date().toISOString() // Assuming immediate update
+                                        }));
+                                    }
+                                });
                             }
-                            sendPixelCountUpdate(ws, data.userId);
-                        });
-                    });
-                } else {
-                    ws.send(JSON.stringify({ error: 'Not enough available pixels.' }));
+                        }
+                    );
                 }
-            });
+            );
         }
     });
 });
 
 
-// Endpoint to update pixel count
-app.post('/update-pixels', (req, res) => {
-    const { userPublicKey, pixelsToAdd } = req.body;
 
-    pool.query('UPDATE user_pixels SET available_pixels = available_pixels + ? WHERE user_id = ?', [pixelsToAdd, userPublicKey], (error, results) => {
-        if (error) {
-            console.error('Error updating pixel count:', error);
-            return res.status(500).json({ error: 'Database update failed' });
-        }
-        res.json({ success: true });
-    });
-});
-
-function sendPixelCountUpdate(ws, userId) {
-    pool.query('SELECT available_pixels, placed_pixels FROM user_pixels WHERE user_id = ?', [userId], (error, results) => {
+const sendPixelCountUpdate = (userId) => {
+    pool.query('SELECT available_pixels FROM user_pixels WHERE user_id = ?', [userId], (error, results) => {
         if (error || results.length === 0) {
-            console.error('Error sending pixel count update:', error);
+            console.error('Error fetching available pixels:', error);
             return;
         }
-        ws.send(JSON.stringify({
-            action: 'updatePixelCount',
-            availablePixels: results[0].available_pixels,
-            placedPixels: results[0].placed_pixels
-        }));
+
+        const availablePixels = results[0].available_pixels;
+
+        wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({ action: 'updatePixelCount', userId, availablePixels }));
+            }
+        });
     });
-}
+};
+
+app.get('/top-burners', (req, res) => {
+    pool.query(
+        'SELECT user_id, SUM(amount_burned) AS total_burned FROM burn_transactions GROUP BY user_id ORDER BY total_burned DESC LIMIT 10',
+        (error, results) => {
+            if (error) {
+                console.error('Error fetching top burners:', error);
+                return res.status(500).json({ error: 'Database query failed' });
+            }
+            res.json(results);
+        }
+    );
+});
+
+app.get('/user-pixels/:userId', (req, res) => {
+    const { userId } = req.params;
+    pool.query(
+        'SELECT available_pixels FROM user_pixels WHERE user_id = ?',
+        [userId],
+        (error, results) => {
+            if (error) {
+                console.error('Error fetching user pixels:', error);
+                return res.status(500).json({ error: 'Database query failed' });
+            }
+            res.json(results[0] || { available_pixels: 0 });
+        }
+    );
+});
 
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

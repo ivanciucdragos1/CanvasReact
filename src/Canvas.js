@@ -1,129 +1,221 @@
-// Canvas.js
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "./components/ui/alert";
+import "./canvas.css"; // Ensure this CSS file contains any necessary styles
 
-const Canvas = ({ color, userPublicKey }) => {
+const Canvas = ({ color, userPublicKey, canvasWidth = 1000, canvasHeight = 1000 }) => {
   const canvasRef = useRef(null);
   const [ctx, setCtx] = useState(null);
   const ws = useRef(null);
   const pixelSize = 10;
   const [zoomLevel, setZoomLevel] = useState(1);
-  const pixelData = useRef({});
-  const minZoom = 1; // Define minZoom inside the component
-  const maxZoom = 5; // Define maxZoom inside the component
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+  const pixelData = useRef(initializePixelData(canvasWidth / pixelSize, canvasHeight / pixelSize));
+  const [isPainting, setIsPainting] = useState(false);
+  const [availablePixels, setAvailablePixels] = useState(0);
+
+  function initializePixelData(width, height) {
+    const data = new Array(height);
+    for (let i = 0; i < height; i++) {
+      data[i] = new Array(width).fill(null);
+    }
+    return data;
+  }
+
   useEffect(() => {
     ws.current = new WebSocket(`ws://localhost:3000`);
 
     ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.x !== undefined && data.y !== undefined) {
-        updatePixelData(
-          data.x,
-          data.y,
-          data.color,
-          data.userId,
-          data.timestamp
-        );
+      const message = JSON.parse(event.data);
+      if (message.action === 'updatePixelCount' && message.userId === userPublicKey) {
+        setAvailablePixels(message.availablePixels);
+      } else if (message.x !== undefined && message.y !== undefined) {
+        updatePixelData(message.x, message.y, message.color, message.userId, message.timestamp);
       }
     };
 
     return () => {
       ws.current.close();
     };
+  }, [userPublicKey]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    setCtx(canvas.getContext("2d"));
+
+    return () => {
+      // Cleanup code here if needed
+    };
   }, []);
 
   useEffect(() => {
-    if (canvasRef.current) {
-      setCtx(canvasRef.current.getContext("2d"));
+    applyTransformations();
+  }, [zoomLevel, offset]);
+
+  const applyTransformations = () => {
+    if (ctx) {
+      ctx.setTransform(zoomLevel, 0, 0, zoomLevel, offset.x, offset.y);
+      redrawCanvas();
     }
-  }, []);
-
-  useEffect(() => {
-    redrawCanvas();
-  }, [zoomLevel, ctx]); // Redraw canvas on zoom level change or context setup
-
-  const updatePixelData = (x, y, color, userId, timestamp) => {
-    pixelData.current[`${x}-${y}`] = { color, userId, timestamp };
-    drawPixel(x, y, color, userId, timestamp);
   };
 
-  const drawPixel = (x, y, color, userId, timestamp) => {
-    const scaledX = x * pixelSize * zoomLevel;
-    const scaledY = y * pixelSize * zoomLevel;
-    const scaledSize = pixelSize * zoomLevel;
+  const updatePixelData = (x, y, color, userId, timestamp) => {
+    pixelData.current[y][x] = { color, userId, timestamp };
+    drawPixel(x, y, color);
+  };
+
+  const drawPixel = (x, y, color) => {
     if (ctx) {
+      const scaledX = x * pixelSize;
+      const scaledY = y * pixelSize;
+      const scaledSize = pixelSize;
       ctx.fillStyle = color;
       ctx.fillRect(scaledX, scaledY, scaledSize, scaledSize);
-      ctx.strokeRect(scaledX, scaledY, scaledSize, scaledSize);
     }
   };
 
   const handleWheel = (e) => {
     e.preventDefault();
-    const newZoomLevel =
-      e.deltaY < 0
-        ? Math.min(maxZoom, zoomLevel * 1.1)
-        : Math.max(minZoom, zoomLevel / 1.1);
+    const newZoomLevel = e.deltaY < 0 ? Math.min(5, zoomLevel * 1.1) : Math.max(1, zoomLevel / 1.1);
     setZoomLevel(newZoomLevel);
   };
 
-  const handleClick = (e) => {
-    if (!userPublicKey) {
-      <Alert>
-        <AlertTitle>Heads up!</AlertTitle>
-        <AlertDescription>
-          You can add components and dependencies to your app using the cli.
-        </AlertDescription>
-      </Alert>;
-      return;
+  const handleMouseDown = (e) => {
+    if (e.button === 0) {
+      setIsPainting(true);
+    } else if (e.button === 2) {
+      setStartPan({ x: e.clientX - offset.x, y: e.clientY - offset.y });
+      setIsPanning(true);
     }
+  };
 
+  const handleMouseMove = (e) => {
+    if (isPanning) {
+      const newX = e.clientX - startPan.x;
+      const newY = e.clientY - startPan.y;
+      setOffset({ x: newX, y: newY });
+    } else if (isPainting) {
+      paintPixel(e);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsPainting(false);
+    setIsPanning(false);
+  };
+
+  const paintPixel = (e) => {
+    if (!userPublicKey || !isPainting || availablePixels <= 0) return;
+  
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = Math.floor((e.clientX - rect.left) / (pixelSize * zoomLevel));
-    const y = Math.floor((e.clientY - rect.top) / (pixelSize * zoomLevel));
-
-    updatePixelData(x, y, color, userPublicKey, new Date().toISOString());
-
-    // Send pixel placement to the server
-    if (ws.current) {
-      ws.current.send(
-        JSON.stringify({
+    const x = Math.floor((e.clientX - rect.left - offset.x) / (pixelSize * zoomLevel));
+    const y = Math.floor((e.clientY - rect.top - offset.y) / (pixelSize * zoomLevel));
+  
+    if (x >= 0 && x < canvasWidth / pixelSize && y >= 0 && y < canvasHeight / pixelSize) {
+      updatePixelData(x, y, color, userPublicKey, new Date().toISOString());
+  
+      if (ws.current) {
+        ws.current.send(JSON.stringify({
           action: "placePixel",
           x,
           y,
           color,
-          userId: userPublicKey,
-        })
-      );
+          userId: userPublicKey
+        }));
+  
+        // Decrement the available pixels only after a successful backend update.
+        setAvailablePixels((prev) => Math.max(0, prev - 1));
+      }
     }
+  };
+  
+
+  const handleClick = (e) => {
+    if (!userPublicKey) {
+      alert("You need to connect your wallet to place a pixel.");
+      return;
+    }
+  
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left - offset.x) / (pixelSize * zoomLevel));
+    const y = Math.floor((e.clientY - rect.top - offset.y) / (pixelSize * zoomLevel));
+  
+    if (x >= 0 && x < canvasWidth / pixelSize && y >= 0 && y < canvasHeight / pixelSize) {
+      updatePixelData(x, y, color, userPublicKey, new Date().toISOString());
+  
+      if (ws.current) {
+        ws.current.send(JSON.stringify({ action: "placePixel", x, y, color, userId: userPublicKey }));
+        setAvailablePixels((prev) => Math.max(0, prev - 1));
+      }
+    }
+  };
+  
+
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    setStartPan({ x: touch.clientX - offset.x, y: touch.clientY - offset.y });
+    setIsPanning(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (isPanning) {
+      const touch = e.touches[0];
+      const newX = touch.clientX - startPan.x;
+      const newY = touch.clientY - startPan.y;
+      setOffset({ x: newX, y: newY });
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsPanning(false);
   };
 
   const redrawCanvas = () => {
     if (ctx) {
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      for (let key in pixelData.current) {
-        const [x, y] = key.split("-").map(Number);
-        drawPixel(
-          x,
-          y,
-          pixelData.current[key].color,
-          pixelData.current[key].userId,
-          pixelData.current[key].timestamp
-        );
+      for (let y = 0; y < pixelData.current.length; y++) {
+        for (let x = 0; x < pixelData.current[y].length; x++) {
+          const pixel = pixelData.current[y][x];
+          if (pixel) {
+            drawPixel(x, y, pixel.color);
+          }
+        }
       }
     }
+  };
+
+  const handleCanvasEnter = () => {
+    document.body.style.overflow = "hidden";
+  };
+
+  const handleCanvasLeave = () => {
+    document.body.style.overflow = "auto";
+  };
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
   };
 
   return (
     <canvas
       ref={canvasRef}
-      width="1000"
-      height="1000"
+      width={canvasWidth}
+      height={canvasHeight}
       onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}  // Consider stopping painting/panning when the mouse leaves the canvas
       onClick={handleClick}
-      style={{ border: "2px solid #7C3AED", cursor: "pointer" }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onContextMenu={handleContextMenu}
+      style={{ border: "2px solid #7C3AED", cursor: "pointer", userSelect: "none" }}
     ></canvas>
   );
 };
 
 export default Canvas;
+
+
